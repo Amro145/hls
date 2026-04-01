@@ -78,7 +78,7 @@ const SecurePlayer = () => {
     useEffect(() => {
         const fetchConfig = async () => {
             try {
-                const response = await fetch('http://localhost:5000/api/video-data');
+                const response = await fetch('https://hls-backend.vercel.app/api/video-data');
                 if (response.ok) {
                     const data = await response.json();
                     setVideoData(data);
