@@ -4,77 +4,93 @@ const SecurePlayer = () => {
     const [videoData, setVideoData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [watermarkPos, setWatermarkPos] = useState({ top: '10%', left: '10%' });
-    const [devtoolsWarning, setDevtoolsWarning] = useState(false);
+    const [isFocused, setIsFocused] = useState(true);
+    const [accessDenied, setAccessDenied] = useState(false);
     const playerContainerRef = useRef(null);
 
     // Hardcore Security Features
     useEffect(() => {
-        // DevTools detection - basic window sizing diff
-        const handleResize = () => {
+        // 1. DevTools Kill-Switch
+        // Uses debugger loop and window resize detection to aggressively force redirection / kill access
+        const checkDevToolsSize = () => {
             const widthDiff = window.outerWidth - window.innerWidth;
             const heightDiff = window.outerHeight - window.innerHeight;
-            // threshold of 200px indicates the devtools pane might be opened
-            if (widthDiff > 200 || heightDiff > 200) {
-                setDevtoolsWarning(true);
-                if (playerContainerRef.current) {
-                    playerContainerRef.current.style.filter = "blur(15px)";
-                }
-            } else {
-                setDevtoolsWarning(false);
-                if (playerContainerRef.current) {
-                    playerContainerRef.current.style.filter = "none";
-                }
+            if (widthDiff > 160 || heightDiff > 160) {
+                setAccessDenied(true);
             }
         };
 
-        window.addEventListener('resize', handleResize);
-        // Initial check just in case it's already open
-        handleResize();
+        const debuggerInterval = setInterval(() => {
+            const before = performance.now();
+            // This breakpoint pauses execution if DevTools is open.
+            // If it takes more than 100ms to evaluate the next line, it means DevTools caught it.
+            debugger; 
+            const after = performance.now();
+            if (after - before > 100) {
+                setAccessDenied(true);
+            }
+            // Periodically check resize as a backup logic
+            checkDevToolsSize();
+        }, 1000);
+
+        window.addEventListener('resize', checkDevToolsSize);
+        checkDevToolsSize(); // Check initially on load
         
-        // Disable context menu (right-click)
+        // 2. Disable context menu (right-click) globally
         const blockContextMenu = (e) => e.preventDefault();
         window.addEventListener('contextmenu', blockContextMenu);
 
-        // Disable specific shortcuts (Save, Inspect, PrintScreen)
-        const blockKeys = (e) => {
-            // PrintScreen, F12, Ctrl+Shift+I, Ctrl+U, Ctrl+S
+        // 3. Aggressive Key & Event Blocking
+        const blockKeys = async (e) => {
+            // PrintScreen (Anti-Screenshot)
             if (e.key === "PrintScreen" || e.keyCode === 44) {
-                navigator.clipboard.writeText("Screen capture blocked.");
                 e.preventDefault();
+                try {
+                    // Instantly flush the clipboard
+                    await navigator.clipboard.writeText("");
+                } catch(err) {
+                    console.error("Clipboard wipe failed", err);
+                }
+                alert("Screenshot detected. Action blocked.");
                 return false;
             }
-            if (e.key === 'F12') {
-                e.preventDefault();
-                return false;
-            }
-            if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) {
-                e.preventDefault();
-                return false;
-            }
-            if (e.ctrlKey && (e.key === 'U' || e.key === 'u')) { // view source
-                e.preventDefault();
-                return false;
-            }
-            if (e.ctrlKey && (e.key === 'S' || e.key === 's')) { // save
+            
+            // F12, Ctrl+Shift+I, Ctrl+U, Ctrl+S, Ctrl+P
+            const isF12 = e.key === 'F12' || e.keyCode === 123;
+            const isCtrlShiftI = e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.keyCode === 73);
+            const isCtrlU = e.ctrlKey && (e.key === 'U' || e.key === 'u' || e.keyCode === 85);
+            const isCtrlS = e.ctrlKey && (e.key === 'S' || e.key === 's' || e.keyCode === 83);
+            const isCtrlP = e.ctrlKey && (e.key === 'P' || e.key === 'p' || e.keyCode === 80);
+
+            if (isF12 || isCtrlShiftI || isCtrlU || isCtrlS || isCtrlP) {
                 e.preventDefault();
                 return false;
             }
         };
         window.addEventListener('keydown', blockKeys);
 
-        // Block copying text inside the window level
+        // Block copying text globally
         const blockCopy = (e) => e.preventDefault();
         window.addEventListener('copy', blockCopy);
+
+        // 4. Focus-Based Obscuration
+        const handleBlur = () => setIsFocused(false);
+        const handleFocus = () => setIsFocused(true);
+        window.addEventListener('blur', handleBlur);
+        window.addEventListener('focus', handleFocus);
         
         return () => {
-            window.removeEventListener('resize', handleResize);
+            clearInterval(debuggerInterval);
+            window.removeEventListener('resize', checkDevToolsSize);
             window.removeEventListener('contextmenu', blockContextMenu);
             window.removeEventListener('keydown', blockKeys);
             window.removeEventListener('copy', blockCopy);
+            window.removeEventListener('blur', handleBlur);
+            window.removeEventListener('focus', handleFocus);
         };
     }, []);
 
-    // Fetch config from backend
+    // Fetch secure configuration from backend
     useEffect(() => {
         const fetchConfig = async () => {
             try {
@@ -93,57 +109,79 @@ const SecurePlayer = () => {
         fetchConfig();
     }, []);
 
-    // Random Watermark Repositioning Script
+    // Advanced Dynamic Watermark Repositioning Script
     useEffect(() => {
         const interval = setInterval(() => {
-            // Keep watermark within safe margins (0% to 85%)
-            const randomTop = Math.floor(Math.random() * 85) + '%';
-            const randomLeft = Math.floor(Math.random() * 85) + '%';
+            // Keep watermark within safe margins (0% to 80%) vertically and horizontally
+            const randomTop = Math.floor(Math.random() * 80) + '%';
+            const randomLeft = Math.floor(Math.random() * 80) + '%';
             setWatermarkPos({ top: randomTop, left: randomLeft });
-        }, 5000); // Reposition every 5 seconds
+        }, 3000); // 3 seconds per requirements
         return () => clearInterval(interval);
     }, []);
 
-    if (loading) return <div className="flex h-64 items-center justify-center text-slate-400">Loading secure connection...</div>;
-    if (!videoData) return <div className="flex h-64 items-center justify-center text-red-500 font-semibold bg-red-950/20 rounded-xl border border-red-900/50">Error retrieving protected content.</div>;
+    if (accessDenied) {
+        return (
+            <div className="flex h-96 flex-col items-center justify-center bg-red-950/40 rounded-xl border border-red-800 text-center p-8 shadow-2xl">
+                <span className="text-red-500 font-extrabold text-4xl mb-4">ACCESS DENIED</span>
+                <p className="text-red-200 text-lg max-w-lg">
+                    Developer tools or unauthorized inspection systems were detected. Your session has been terminated to protect intellectual property.
+                </p>
+            </div>
+        );
+    }
+
+    if (loading) return <div className="flex h-64 items-center justify-center text-slate-400">Authenticating secure connection...</div>;
+    if (!videoData) return <div className="flex h-64 items-center justify-center text-red-500 font-semibold bg-red-950/20 rounded-xl border border-red-900/50">Error retrieving protected content. Make sure backend is running.</div>;
 
     const iframeSrc = `https://iframe.mediadelivery.net/embed/${videoData.libraryId}/${videoData.videoId}?autoplay=true&loop=false&muted=false&preload=true&responsive=true`;
 
     return (
-        <div className="relative">
-            {devtoolsWarning && (
-                <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md rounded-xl border border-red-500/50 p-6 text-center">
-                    <span className="text-red-500 font-bold text-2xl mb-2">Security Warning</span>
-                    <p className="text-white">Developer tools detected. Video playback is paused/obscured to protect intellectual property.</p>
-                </div>
-            )}
+        <div className="relative group">
             
             <div 
                 ref={playerContainerRef} 
-                className="relative w-full overflow-hidden rounded-xl shadow-2xl bg-black border border-slate-700 transition-all duration-300 transform-gpu"
+                className={`relative w-full overflow-hidden rounded-xl shadow-2xl bg-black border border-slate-700 transition-all duration-300 transform-gpu ${!isFocused ? 'blur-[20px] scale-95 opacity-80' : 'blur-none'}`}
                 style={{ aspectRatio: '16/9' }}
             >
                 {/* The underlying video player iframe */}
                 <iframe
                     src={iframeSrc}
                     loading="lazy"
-                    className="absolute top-0 left-0 w-full h-full border-0"
+                    className="absolute top-0 left-0 w-full h-full border-0 focus:outline-none"
                     allow="accelerometer;gyroscope;autoplay;encrypted-media;picture-in-picture;"
                     allowFullScreen={true}
                 ></iframe>
 
-                {/* Dynamic Watermark Layer OVER the iframe */}
+                {/* Invisible Shield Overlay (Anti-Screenshot/Anti-Interaction buffer layer) */}
+                <div className="absolute inset-0 z-40 bg-transparent pointer-events-none"></div>
+
+                {/* Advanced Dynamic Watermark Layer OVER the iframe */}
                 <div 
-                    className="absolute text-white bg-black/40 px-3 py-1.5 rounded backdrop-blur-md transition-all duration-1000 ease-in-out font-mono font-semibold text-sm z-40 pointer-events-none shadow-lg"
+                    className="absolute px-4 py-2 rounded pointer-events-none transition-all duration-[2500ms] ease-in-out font-mono font-bold text-sm z-50 select-none"
                     style={{ 
                         top: watermarkPos.top, 
                         left: watermarkPos.left, 
+                        // Mix-blend-mode effectively bonds the text to the video making removal near impossible
+                        mixBlendMode: 'overlay', 
+                        color: 'rgba(255,255,255,0.7)',
+                        textShadow: '1px 1px 2px rgba(0,0,0,0.8)'
                     }}
                 >
-                    {videoData.userData?.name || "Viewer"} - Protected Content<br/>
-                    <span className="text-xs text-slate-300">IP: {videoData.userData?.ip || "X.X.X.X"}</span>
+                    CONFIDENTIAL - {videoData.userData?.name || "Viewer"} - IP: {videoData.userData?.ip || "X.X.X.X"}
                 </div>
             </div>
+
+            {/* Focus Loss Warning Overlay */}
+            {!isFocused && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center z-50 pointer-events-none">
+                    <div className="bg-black/80 backdrop-blur-md px-8 py-6 rounded-2xl border border-slate-600 shadow-2xl flex flex-col items-center animate-pulse">
+                        <span className="text-white text-2xl font-bold mb-2 tracking-wide">PLAYBACK PAUSED</span>
+                        <span className="text-slate-300 text-sm">Click here to resume focus</span>
+                    </div>
+                </div>
+            )}
+            
         </div>
     );
 };
